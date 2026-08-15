@@ -102,8 +102,18 @@
     });
   }
 
+  // موبايل (خصوصًا أندرويد كروم) بيوقف التسميع تلقائيًا كل شوية حتى مع continuous:true،
+  // فبنعيد تشغيله تلقائيًا من غير ما المستخدم يدوس تاني، وبنحافظ على النص المتراكم برّه
+  // الدالة عشان الإعادة التلقائية متمسحوش أو تكرره.
+  var sessionActive = false;
+
   function startRec() {
     baseText = output.value ? (output.value.trim() + ' ') : '';
+    sessionActive = true;
+    launchRecognitionInstance();
+  }
+
+  function launchRecognitionInstance() {
     recognition = new SpeechRecClass();
     recognition.lang = 'ar-SA';
     recognition.continuous = true;
@@ -123,28 +133,45 @@
         if (event.results[i].isFinal) finalTranscript += chunk + ' ';
         else interimTranscript += chunk;
       }
-      if (finalTranscript) baseText += finalTranscript;
+      // حماية من تكرار نفس المقطع لو الجهاز بعت نفس النتيجة النهائية مرتين
+      var trimmedChunk = finalTranscript.trim();
+      if (trimmedChunk && !baseText.trim().endsWith(trimmedChunk)) {
+        baseText += finalTranscript;
+      }
       output.value = (baseText + interimTranscript).trim();
     };
     recognition.onerror = function (event) {
       if (event.error === 'not-allowed') {
         statusEl.textContent = 'محتاج تسمح بالوصول للميكروفون من إعدادات المتصفح لهذا الموقع';
+        sessionActive = false; // خطأ نهائي، متعادش تحاول تاني
       } else if (event.error === 'no-speech') {
-        statusEl.textContent = 'مسمعتش صوت، جرّب تاني';
+        statusEl.textContent = 'مسمعتش صوت... لسه بيسمعك';
+      } else if (event.error === 'aborted') {
+        // بيحصل عادي أثناء إعادة التشغيل التلقائي، تجاهله
       } else {
-        statusEl.textContent = 'حصل خطأ (' + event.error + ')';
+        statusEl.textContent = 'حصل خطأ (' + event.error + ')، بيحاول يكمل...';
       }
     };
     recognition.onend = function () {
+      if (sessionActive) {
+        // كمّل تلقائيًا من غير ما نمسح النص المتراكم
+        setTimeout(function () {
+          if (sessionActive) {
+            try { launchRecognitionInstance(); } catch (e) { /* تجاهل */ }
+          }
+        }, 250);
+        return;
+      }
       recording = false;
       micBtn.classList.remove('recording');
       micBtn.textContent = '🎤 ابدأ التسميع';
-      if (statusEl.textContent === 'بيسمعك دلوقتي...') statusEl.textContent = 'تمام، راجع النص وعدّله لو محتاج، وبعدين انسخه';
+      statusEl.textContent = 'تمام، راجع النص وعدّله لو محتاج، وبعدين انسخه';
     };
     recognition.start();
   }
 
   function stopRec() {
+    sessionActive = false;
     if (recognition) recognition.stop();
   }
 </script>
